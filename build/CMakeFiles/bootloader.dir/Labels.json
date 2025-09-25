@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader-complete.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule"
+		},
+		{
+			"file" : "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"bootloader"
+		],
+		"name" : "bootloader"
+	}
+}

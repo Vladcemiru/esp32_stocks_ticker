@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/CMakeFiles/bootloader-complete.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
