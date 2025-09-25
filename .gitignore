@@ -1,0 +1,5 @@
+/.vscode/
+/build/
+/.devcontainer/
+/managed_components/
+/main/connectivity_config.h

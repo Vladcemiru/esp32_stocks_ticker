@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "esp32_stocks_monitor",
-    "project_version":    "8b30f84-dirty",
+    "project_version":    "6d63bd4-dirty",
     "project_path":       "/home/lowpeak/Documents/esp32/esp32_stocks_monitor",
     "idf_path":           "/home/lowpeak/esp/v5.5.1/esp-idf",
     "build_dir":          "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build",
