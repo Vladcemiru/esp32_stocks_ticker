@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "esp32_stocks_monitor",
-    "project_version":    "1",
+    "project_version":    "8b30f84-dirty",
     "project_path":       "/home/lowpeak/Documents/esp32/esp32_stocks_monitor",
     "idf_path":           "/home/lowpeak/esp/v5.5.1/esp-idf",
     "build_dir":          "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build",
@@ -880,7 +880,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [ "nopnop2002__ssd1306" ],
             "file": "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/build/esp-idf/main/libmain.a",
-            "sources": [ "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/main/wifi_eap_fast_main.c" ],
+            "sources": [ "/home/lowpeak/Documents/esp32/esp32_stocks_monitor/main/main.c" ],
             "include_dirs": [ "." ]
         },
         "mbedtls": {
