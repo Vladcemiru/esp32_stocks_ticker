@@ -6,10 +6,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-#include "esp_wifi.h"
 #include "esp_eap_client.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -27,9 +23,6 @@
 #include "esp_netif.h"
 #include "driver/gpio.h"
 
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_http_client.h"
@@ -43,12 +36,13 @@
 #include "font8x8_basic.h"
 
 #include "cJSON.h"
+#define MIN(a,b) (((a)<(b))?(a):(b))
 
 
 #define tag "SSD1306"
 #define MAX_WIDTH 14
 #define MAX_LINES 4
-
+#define MAX_HTTP_OUTPUT_BUFFER 10000
 
 QueueHandle_t symbol_queue;
 
@@ -56,60 +50,21 @@ QueueHandle_t symbol_queue;
 	int center, top, bottom;
 	char lineChar[20];
 	char my_buff[14];
+	char api_buffer[5000];
+	char responseBuffer[MAX_HTTP_OUTPUT_BUFFER];
+	
 
 #include "connectivity_config.h"
    
 
 static EventGroupHandle_t s_wifi_event_group;
 static const int WIFI_CONNECTED_BIT = BIT0;
-static const char *TAG = "empty";
+static const char *TAG_HTTP = "HTTP";
+static const char *TAG = "WIFI";
 
-void http_get_task(void *pvParameters)
-{
-    esp_http_client_config_t config = {
-        .url = API_STRING, 
-        .method = HTTP_METHOD_GET,
-        .transport_type = HTTP_TRANSPORT_OVER_TCP, 
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status = esp_http_client_get_status_code(client);
-        int len = esp_http_client_get_content_length(client);
-        ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %d", status, len);
-
-        char buffer[30000];
-        int read_len = esp_http_client_read_response(client, buffer, sizeof(buffer)-1);
-        if (read_len >= 0) {
-            buffer[read_len] = '\0'; 
-            ESP_LOGI(TAG, "Data: %s", buffer);
-
-			cJSON *root = cJSON_Parse(buffer);
-			if (root == NULL) {
-    		ESP_LOGE(TAG, "JSON root parse error!");
-				}
-			cJSON *format = cJSON_GetObjectItem(root,"Meta Data");
-			if (format == NULL) {
-    		ESP_LOGE(TAG, "JSON format parse error!");
-				} else {
-			const char *myLine = cJSON_GetObjectItem(format,"symbol")->valuestring;
-
-			printf("Symbol: %s\n", myLine);
-				}
-
-				const char *myLine = "empty";
-    		xQueueSend(symbol_queue, myLine, portMAX_DELAY);
-
-        }
-    } else {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
-    }
+  
 
 
-    esp_http_client_cleanup(client);
-    vTaskDelete(NULL);
-}
 
 static void event_handler(void* arg, esp_event_base_t event_base,
                           int32_t event_id, void* event_data)
@@ -376,14 +331,290 @@ void disp_invert(SSD1306_t *dev){
 }
 
 
+
+esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    static char *output_buffer;  // Buffer to store response of http request from event handler
+    static int output_len;       // Stores number of bytes read
+    switch(evt->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+            break;
+        case HTTP_EVENT_ON_CONNECTED:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+            break;
+        case HTTP_EVENT_HEADER_SENT:
+            ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+            break;
+        case HTTP_EVENT_ON_DATA:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            // Clean the buffer in case of a new request
+            if (output_len == 0 && evt->user_data) {
+                // we are just starting to copy the output data into the use
+                memset(evt->user_data, 0, MAX_HTTP_OUTPUT_BUFFER);
+            }
+            /*
+             *  Check for chunked encoding is added as the URL for chunked encoding used in this example returns binary data.
+             *  However, event handler can also be used in case chunked encoding is used.
+             */
+            if (!esp_http_client_is_chunked_response(evt->client)) {
+                // If user_data buffer is configured, copy the response into the buffer
+                int copy_len = 0;
+                if (evt->user_data) {
+                    // The last byte in evt->user_data is kept for the NULL character in case of out-of-bound access.
+                    copy_len = MIN(evt->data_len, (MAX_HTTP_OUTPUT_BUFFER - output_len));
+                    if (copy_len) {
+                        memcpy(evt->user_data + output_len, evt->data, copy_len);
+                    }
+                } else {
+                    int content_len = esp_http_client_get_content_length(evt->client);
+                    if (output_buffer == NULL) {
+                        // We initialize output_buffer with 0 because it is used by strlen() and similar functions therefore should be null terminated.
+                        output_buffer = (char *) calloc(content_len + 1, sizeof(char));
+                        output_len = 0;
+                        if (output_buffer == NULL) {
+                            ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
+                            return ESP_FAIL;
+                        }
+                    }
+                    copy_len = MIN(evt->data_len, (content_len - output_len));
+                    if (copy_len) {
+                        memcpy(output_buffer + output_len, evt->data, copy_len);
+                    }
+                }
+                output_len += copy_len;
+            }
+
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+            if (output_buffer != NULL) {
+#if CONFIG_EXAMPLE_ENABLE_RESPONSE_BUFFER_DUMP
+                ESP_LOG_BUFFER_HEX(TAG, output_buffer, output_len);
+#endif
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            output_len = 0;
+            break;
+        case HTTP_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
+ 
+			int mbedtls_err = 0;
+			esp_err_t err = esp_http_client_get_and_clear_last_tls_error(evt->client, &mbedtls_err, NULL);
+			if (err != ESP_OK) {
+    				ESP_LOGE(TAG, "TLS error: %d, mbedtls: 0x%x", err, mbedtls_err);
+			}
+			//XXX err
+            if (err != 0) {
+                ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
+                ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+            }
+            if (output_buffer != NULL) {
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            output_len = 0;
+            break;
+        case HTTP_EVENT_REDIRECT:
+            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+            esp_http_client_set_header(evt->client, "From", "user@example.com");
+            esp_http_client_set_header(evt->client, "Accept", "text/html");
+            esp_http_client_set_redirection(evt->client);
+            break;
+    }
+    return ESP_OK;
+}
+
+void http_get_example(void)
+{
+    // Buffer for response
+    char response_buffer[1024];
+    
+    // Configure the HTTP client
+    esp_http_client_config_t config = {
+        .url = API_STRING,  // Your API endpoint
+        .method = HTTP_METHOD_GET,
+    };
+    
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    
+    // Perform the request
+    esp_err_t err = esp_http_client_perform(client);
+    
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        int content_length = esp_http_client_get_content_length(client);
+        
+        ESP_LOGI(TAG, "Status = %d, content_length = %d", status_code, content_length);
+        
+        // Read the response body
+        int data_read = esp_http_client_read_response(client, response_buffer, sizeof(response_buffer) - 1);
+        
+        if (data_read >= 0) {
+            response_buffer[data_read] = '\0';  // Null terminate
+            ESP_LOGI(TAG, "JSON Response: %s", response_buffer);
+            
+            // Now you can parse the JSON string in response_buffer
+            // using cJSON or your preferred JSON library
+        } else {
+            ESP_LOGE(TAG, "Failed to read response");
+        }
+    } else {
+        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+    }
+    
+    esp_http_client_cleanup(client);
+}
+
+
+// HTTP GET Request Task
+void http_get_task(void *pvParameters) {
+		char buffer[512];
+		memset(buffer, 0, sizeof(buffer));
+    esp_http_client_config_t config = {
+        .url = API_STRING,
+		.user_data = buffer,
+		.disable_auto_redirect = true,
+    };
+
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+	
+
+    while (1) {
+        esp_http_client_perform(client);  // Initiate GET request
+        ESP_LOGI(TAG_HTTP, "HTTP GET Request to %s", API_STRING);
+		ESP_LOGI(TAG_HTTP, "HTTP REQUEST STATUS %d", esp_http_client_get_status_code(client));
+		
+        int content_length = esp_http_client_get_content_length(client);
+		ESP_LOGI(TAG_HTTP, "HTTP CONTENT LENGTH %d", content_length);
+
+       //ESP_LOGI(TAG_HTTP, "HTTP READ RETURN %d", esp_http_client_read(client, buffer, content_length));
+	    int user_data = esp_http_client_read(client, buffer, content_length);
+		ESP_LOGI(TAG_HTTP, "USER_DATA_RETURN %s", user_data);
+        ESP_LOGI(TAG_HTTP, "Response: %s", buffer);
+		ESP_LOGI(TAG_HTTP, "BUF_STRLEN %d", strlen(buffer));
+		ESP_LOG_BUFFER_HEX(TAG_HTTP, buffer, strlen(buffer));
+
+
+        vTaskDelay(pdMS_TO_TICKS(10000));  // Delay between requests
+    }
+    esp_http_client_cleanup(client);
+}
+static void http_rest_with_url(void)
+{
+    // Declare local_response_buffer with size (MAX_HTTP_OUTPUT_BUFFER + 1) to prevent out of bound access when
+    // it is used by functions like strlen(). The buffer should only be used upto size MAX_HTTP_OUTPUT_BUFFER
+    char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER + 1] = {0};
+    /**
+     * NOTE: All the configuration parameters for http_client must be specified either in URL or as host and path parameters.
+     * If host and path parameters are not set, query parameter will be ignored. In such cases,
+     * query parameter should be specified in URL.
+     *
+     * If URL as well as host and path parameters are specified, values of host and path will be considered.
+     */
+    esp_http_client_config_t config = {
+        .host = API_STRING,
+        // .path = "/get",
+        // .query = "esp",
+        .event_handler = _http_event_handler,
+        .user_data = local_response_buffer,        // Pass address of local buffer to get response
+        .disable_auto_redirect = true,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    // GET
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+    }
+    ESP_LOG_BUFFER_HEX(TAG, local_response_buffer, strlen(local_response_buffer));
+
+    // POST
+    const char *post_data = "{\"field1\":\"value1\"}";
+    esp_http_client_set_url(client, API_STRING);
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+
+    //PUT
+    esp_http_client_set_url(client, API_STRING);
+    esp_http_client_set_method(client, HTTP_METHOD_PUT);
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP PUT Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP PUT request failed: %s", esp_err_to_name(err));
+    }
+
+    //PATCH
+    esp_http_client_set_url(client, API_STRING);
+    esp_http_client_set_method(client, HTTP_METHOD_PATCH);
+    esp_http_client_set_post_field(client, NULL, 0);
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP PATCH Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP PATCH request failed: %s", esp_err_to_name(err));
+    }
+
+    //DELETE
+    esp_http_client_set_url(client, API_STRING);
+    esp_http_client_set_method(client, HTTP_METHOD_DELETE);
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP DELETE Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP DELETE request failed: %s", esp_err_to_name(err));
+    }
+
+    //HEAD
+    esp_http_client_set_url(client, API_STRING);
+    esp_http_client_set_method(client, HTTP_METHOD_HEAD);
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP HEAD Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP HEAD request failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+
 void app_main(void)
 {
-	symbol_queue = xQueueCreate(5, sizeof(char[32]));
  	char extern_line[10];
 	char t = 'b';
 	snprintf(my_buff, 9, "no_data");
 
 //display---------------------
+
+
 
     SSD1306_t sc1;
     disp_init(&sc1);
@@ -423,17 +654,19 @@ void app_main(void)
 
     wifi_test();
 
-    xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
+    // xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
 
 
     gpio_reset_pin(GPIO_NUM_2);
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     
 
+
+
     //main loop
     while(1){
 	// if (xQueueReceive(symbol_queue, extern_line, pdMS_TO_TICKS(1000))) {
- 
+  	http_rest_with_url();
 	// } else {
    disp_scrolldown(&sc1, my_buff);
 	
