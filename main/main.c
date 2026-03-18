@@ -58,7 +58,7 @@ QueueHandle_t symbol_queue;
 	char responseBuffer[MAX_HTTP_OUTPUT_BUFFER];
 	
 
-#include "connectivity_config.h"
+#include "../include/connectivity_config.h"
    
 
 static EventGroupHandle_t s_wifi_event_group;
@@ -695,7 +695,7 @@ static void fetch_fear_greed(void)
     ESP_LOGI(TAG_HTTP, "Fear&Greed alternative.me %d %s", g_fng_value, g_fng_label);
 }
 
-/* Task: fetch every 2 minuty Finnhub quote + Fear & Greed */
+/* Task: fetch every 2 minutes Finnhub quote + Fear & Greed */
 static void stocks_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -719,7 +719,6 @@ void app_main(void)
 //display---------------------
     SSD1306_t sc1;
     disp_init(&sc1);
-    /* Hned rozsvítit displej – uvidíš že běží */
     disp_static_text(&sc1);
 
     /* Stav: Start */
@@ -753,7 +752,6 @@ void app_main(void)
 //     // init NVS
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    /* WiFi – na displeji uvidíš průběh */
     disp_show_status(&sc1, "STOCK MONITOR", "WiFi...", "");
     wifi_init_sta();
     vTaskDelay(2000 / portTICK_PERIOD_MS);
@@ -767,7 +765,6 @@ void app_main(void)
 
     wifi_test();
 
-    /* Task: každé 2 minuty Finnhub REST /quote pro všechny tickery */
     xTaskCreate(stocks_task, "stocks_task", 6144, NULL, 5, NULL);
 
     gpio_reset_pin(GPIO_NUM_2);
