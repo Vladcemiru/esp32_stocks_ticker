@@ -59,7 +59,7 @@ QueueHandle_t symbol_queue;
 	
 
 #include "../include/connectivity_config.h"
-   
+#include "view_config.h"
 
 static EventGroupHandle_t s_wifi_event_group;
 static const int WIFI_CONNECTED_BIT = BIT0;
@@ -161,27 +161,77 @@ void disp_static_text(SSD1306_t *dev){
 
 #define DISP_LINE_MAX 16
 
+#define MAX_STOCKS     32
+#define MAX_TICKER_LEN 15
+
 typedef struct {
-    const char *symbol;
+    char symbol[MAX_TICKER_LEN + 1];
     char price_str[DISP_LINE_MAX + 1];
     char change_str[DISP_LINE_MAX + 1];
     bool has_data;
 } StockInfo;
 
-#define NUM_STOCKS 4
-static StockInfo g_stocks[NUM_STOCKS] = {
-    { "AAPL",  "", "", false },
-    { "GOOGL", "", "", false },
-    { "SOFI",  "", "", false },
-    { "NVDA",  "", "", false },
-};
+static StockInfo g_stocks[MAX_STOCKS];
+static int g_num_stocks = 0;
 
 #define FNG_API_URL  "https://api.alternative.me/fng/?limit=1&format=json"
 static int g_fng_value = 0;           /* 0–100 */
 static char g_fng_label[DISP_LINE_MAX + 1] = "";
 static bool g_fng_has_data = false;
-#define NUM_SLIDES  (NUM_STOCKS + 1)  /* 4 akcie + Fear & Greed */
 static int g_current_slide = 0;
+
+static int num_slides(void) { return g_num_stocks > 0 ? (g_num_stocks + 1) : 2; }
+
+/* tickers.txt embedded via CMake EMBED_FILES */
+extern const uint8_t tickers_txt_start[] asm("_binary_tickers_txt_start");
+extern const uint8_t tickers_txt_end[]   asm("_binary_tickers_txt_end");
+
+static bool is_ticker_space(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static void parse_embedded_tickers(void)
+{
+    const char *p = (const char *)tickers_txt_start;
+    const char *end = (const char *)tickers_txt_end;
+    g_num_stocks = 0;
+
+    while (p < end && g_num_stocks < MAX_STOCKS) {
+        while (p < end && (*p == '\n' || *p == '\r')) p++;
+        if (p >= end) break;
+        const char *line_start = p;
+        while (p < end && *p != '\n' && *p != '\r') p++;
+        const char *s = line_start;
+        while (s < p && is_ticker_space(*s)) s++;
+        const char *e = p;
+        while (e > s && is_ticker_space(e[-1])) e--;
+        if (s >= e) continue;
+        if (*s == '#') continue;
+        size_t len = (size_t)(e - s);
+        if (len > MAX_TICKER_LEN) len = MAX_TICKER_LEN;
+        memcpy(g_stocks[g_num_stocks].symbol, s, len);
+        g_stocks[g_num_stocks].symbol[len] = '\0';
+        for (size_t i = 0; i < len; i++) {
+            char c = g_stocks[g_num_stocks].symbol[i];
+            if (c >= 'a' && c <= 'z') g_stocks[g_num_stocks].symbol[i] = (char)(c - 32);
+        }
+        g_stocks[g_num_stocks].price_str[0] = '\0';
+        g_stocks[g_num_stocks].change_str[0] = '\0';
+        g_stocks[g_num_stocks].has_data = false;
+        g_num_stocks++;
+    }
+    if (g_num_stocks == 0) {
+        strncpy(g_stocks[0].symbol, "AAPL", sizeof(g_stocks[0].symbol) - 1);
+        g_stocks[0].symbol[sizeof(g_stocks[0].symbol) - 1] = '\0';
+        g_stocks[0].price_str[0] = g_stocks[0].change_str[0] = '\0';
+        g_stocks[0].has_data = false;
+        g_num_stocks = 1;
+        ESP_LOGW(TAG_HTTP, "tickers.txt empty, using default AAPL");
+    } else {
+        ESP_LOGI(TAG_HTTP, "Loaded %d ticker(s) from tickers.txt", g_num_stocks);
+    }
+}
 
 #define STOCK_REFRESH_MS  (2 * 60 * 1000)
 
@@ -209,7 +259,7 @@ static void disp_show_status(SSD1306_t *dev, const char *line1, const char *line
 	disp_line_safe(dev, 1, (line2 && line2[0]) ? line2 : "", DISP_LINE_MAX);
 	disp_line_safe(dev, 2, (line3 && line3[0]) ? line3 : "", DISP_LINE_MAX);
 #if CONFIG_SSD1306_128x64
-	/* 128x64: řádek 3 prázdný */
+	/* 128x64: line 3 intentionally unused */
 #endif
 }
 
@@ -393,6 +443,90 @@ void disp_horizontal_scroll_long(SSD1306_t *dev, const char *text, int delay_ms,
 	}
 }
 
+#if STOCKS_DISPLAY_VIEW == STOCKS_VIEW_HSCROLL
+/* Line 0: title; bottom usable line: horizontal scroll of long text */
+static void disp_title_and_hscroll(SSD1306_t *dev, const char *title, const char *scroll_text,
+				   int delay_ms, int duration_ms)
+{
+	int len = (int)strlen(scroll_text);
+	if (len == 0) {
+		disp_show_status(dev, title ? title : "-", "(empty list)", "");
+		vTaskDelay(pdMS_TO_TICKS(2000));
+		return;
+	}
+	ssd1306_clear_screen(dev, false);
+	ssd1306_contrast(dev, 0xff);
+	disp_line_safe(dev, 0, title ? title : "", DISP_LINE_MAX);
+	int scroll_page = (dev->_pages >= 3) ? 2 : (dev->_pages > 0 ? dev->_pages - 1 : 0);
+	int max_offset = (len > 16) ? len - 16 : 0;
+	int offset = 0;
+	int elapsed = 0;
+	while (elapsed < duration_ms) {
+		int n = (len - offset) > 16 ? 16 : (len - offset);
+		if (n > 0) {
+			ssd1306_clear_line(dev, scroll_page, false);
+			ssd1306_display_text(dev, scroll_page, scroll_text + offset, n, false);
+		}
+		vTaskDelay(pdMS_TO_TICKS(delay_ms));
+		elapsed += delay_ms;
+		offset++;
+		if (offset > max_offset) offset = 0;
+	}
+}
+
+static void build_stocks_scroll_string(char *buf, size_t buf_sz)
+{
+	size_t pos = 0;
+	buf[0] = '\0';
+	for (int i = 0; i < g_num_stocks && pos + 8 < buf_sz; i++) {
+		if (g_stocks[i].has_data)
+			pos += (size_t)snprintf(buf + pos, buf_sz - pos, " %s %s %s |",
+						g_stocks[i].symbol, g_stocks[i].price_str, g_stocks[i].change_str);
+		else
+			pos += (size_t)snprintf(buf + pos, buf_sz - pos, " %s ... |", g_stocks[i].symbol);
+	}
+	if (pos == 0)
+		snprintf(buf, buf_sz, " (no data) ");
+}
+#endif /* STOCKS_VIEW_HSCROLL */
+
+#if STOCKS_DISPLAY_VIEW == STOCKS_VIEW_VSLOW
+static void run_view_vertical_slow(SSD1306_t *dev)
+{
+	ssd1306_clear_screen(dev, false);
+	ssd1306_contrast(dev, 0xff);
+	disp_line_safe(dev, 0, "STOCKS (slow)", DISP_LINE_MAX);
+	int last = dev->_pages - 1;
+	if (last < 2) last = 2;
+	ssd1306_software_scroll(dev, 1, last);
+	/* symbol + price + change can exceed 26 B — larger buffer for -Wformat-truncation */
+	char scroll_ln[72];
+	for (int i = 0; i < g_num_stocks; i++) {
+		scroll_ln[0] = (char)0x02;
+		if (g_stocks[i].has_data)
+			snprintf(scroll_ln + 1, sizeof(scroll_ln) - 2, " %s %s %s",
+				 g_stocks[i].symbol, g_stocks[i].price_str, g_stocks[i].change_str);
+		else
+			snprintf(scroll_ln + 1, sizeof(scroll_ln) - 2, " %s ...", g_stocks[i].symbol);
+		ssd1306_scroll_text(dev, scroll_ln, (int)strlen(scroll_ln), false);
+		vTaskDelay(pdMS_TO_TICKS(VIEW_VSLOW_LINE_MS));
+	}
+	if (g_fng_has_data) {
+		scroll_ln[0] = (char)0x02;
+		snprintf(scroll_ln + 1, sizeof(scroll_ln) - 2, " F&G %d %s", g_fng_value, g_fng_label);
+		ssd1306_scroll_text(dev, scroll_ln, (int)strlen(scroll_ln), false);
+		vTaskDelay(pdMS_TO_TICKS(VIEW_VSLOW_LINE_MS));
+	} else {
+		scroll_ln[0] = (char)0x02;
+		snprintf(scroll_ln + 1, sizeof(scroll_ln) - 2, " F&G ...");
+		ssd1306_scroll_text(dev, scroll_ln, (int)strlen(scroll_ln), false);
+		vTaskDelay(pdMS_TO_TICKS(VIEW_VSLOW_LINE_MS));
+	}
+	vTaskDelay(pdMS_TO_TICKS(2500));
+	ssd1306_scroll_clear(dev);
+}
+#endif /* STOCKS_VIEW_VSLOW */
+
 void disp_vertical_scroll(SSD1306_t *dev){
 	ssd1306_clear_screen(dev, false);
 	ssd1306_contrast(dev, 0xff);
@@ -436,7 +570,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* Jednoduchý helper: GET na danou URL, tělo do responseBuffer */
+/* Simple GET helper: response body into responseBuffer */
 static esp_err_t http_get_to_buffer(const char *url, int *out_status)
 {
     if (!url || !out_status) return ESP_ERR_INVALID_ARG;
@@ -475,7 +609,7 @@ static esp_err_t http_get_to_buffer(const char *url, int *out_status)
     return err;
 }
 
-/* RapidAPI helper: GET s x-rapidapi-key + x-rapidapi-host */
+/* RapidAPI GET with x-rapidapi-key + x-rapidapi-host */
 static esp_err_t http_get_to_buffer_rapidapi(const char *url, int *out_status)
 {
     if (!url || !out_status) return ESP_ERR_INVALID_ARG;
@@ -521,7 +655,7 @@ static esp_err_t http_get_to_buffer_rapidapi(const char *url, int *out_status)
 
 static void fetch_one_quote_finnhub(int idx)
 {
-    if (idx < 0 || idx >= NUM_STOCKS || FINNHUB_API_TOKEN[0] == '\0') return;
+    if (idx < 0 || idx >= g_num_stocks || FINNHUB_API_TOKEN[0] == '\0') return;
 
     char url[200];
     snprintf(url, sizeof(url), FINNHUB_API_BASE "?symbol=%s&token=%s",
@@ -563,18 +697,18 @@ static void fetch_one_quote_finnhub(int idx)
 static void fetch_all_stocks_finnhub(void)
 {
     if (FINNHUB_API_TOKEN[0] == '\0') {
-        ESP_LOGW(TAG_HTTP, "FINNHUB_API_TOKEN není nastavený");
-        for (int i = 0; i < NUM_STOCKS; ++i) g_stocks[i].has_data = false;
+        ESP_LOGW(TAG_HTTP, "FINNHUB_API_TOKEN is not set");
+        for (int i = 0; i < g_num_stocks; ++i) g_stocks[i].has_data = false;
         return;
     }
 
-    for (int i = 0; i < NUM_STOCKS; ++i) {
+    for (int i = 0; i < g_num_stocks; ++i) {
         fetch_one_quote_finnhub(i);
         vTaskDelay(pdMS_TO_TICKS(400));
     }
 }
 
-/* Načte Fear & Greed Index (RapidAPI preferred). */
+/* Fetch Fear & Greed index (RapidAPI first, then alternative.me). */
 static void fetch_fear_greed(void)
 {
     g_fng_has_data = false;
@@ -582,7 +716,7 @@ static void fetch_fear_greed(void)
     int status = 0;
     esp_err_t err;
 
-    /* 1) RapidAPI endpoint */
+    /* 1) RapidAPI */
     if (RAPIDAPI_FNG_API_KEY[0] != '\0') {
         err = http_get_to_buffer_rapidapi(RAPIDAPI_FNG_API_URL, &status);
         if (err == ESP_OK && status == 200) {
@@ -611,7 +745,7 @@ static void fetch_fear_greed(void)
                     if (valueText && valueText[0] != '\0') {
                         snprintf(g_fng_label, sizeof(g_fng_label), "%s", valueText);
                     } else {
-                        /* Fallback: popisky dle rozsahu */
+                        /* Fallback labels by range */
                         if (g_fng_value <= 24)
                             snprintf(g_fng_label, sizeof(g_fng_label), "Extreme Fear");
                         else if (g_fng_value <= 44)
@@ -638,10 +772,10 @@ static void fetch_fear_greed(void)
             ESP_LOGW(TAG_HTTP, "FNG RapidAPI request failed err=%d status=%d", (int)err, status);
         }
     } else {
-        ESP_LOGW(TAG_HTTP, "RAPIDAPI_FNG_API_KEY není nastavený");
+        ESP_LOGW(TAG_HTTP, "RAPIDAPI_FNG_API_KEY is not set");
     }
 
-    /* 2) Fallback: alternative.me */
+    /* 2) Fallback alternative.me */
     err = http_get_to_buffer(FNG_API_URL, &status);
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG_HTTP, "FNG alternative.me request failed err=%d status=%d", (int)err, status);
@@ -679,7 +813,7 @@ static void fetch_fear_greed(void)
     if (value_parsed < 0 || value_parsed > 100) return;
     g_fng_value = value_parsed;
 
-    /* Popisky dle rozsahu (ASCII) */
+    /* ASCII labels by value range */
     if (g_fng_value <= 24)
         snprintf(g_fng_label, sizeof(g_fng_label), "Extreme Fear");
     else if (g_fng_value <= 44)
@@ -720,8 +854,9 @@ void app_main(void)
     SSD1306_t sc1;
     disp_init(&sc1);
     disp_static_text(&sc1);
+    parse_embedded_tickers();
 
-    /* Stav: Start */
+    /* Boot: start */
     disp_show_status(&sc1, "STOCK MONITOR", "Starting...", "");
 
  #ifdef DISP_DEBUG   
@@ -771,23 +906,26 @@ void app_main(void)
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     
 
-    /* Hlavní smyčka – rotace: 4 akcie + Fear & Greed */
+    static char fng_index_line[DISP_LINE_MAX + 1];
+#if STOCKS_DISPLAY_VIEW == STOCKS_VIEW_HSCROLL
+    static char hscroll_buf[400];
+#endif
+
     while (1) {
         bool wifi_ok = (xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT) != 0;
 
-        if (g_current_slide < NUM_STOCKS) {
+#if STOCKS_DISPLAY_VIEW == STOCKS_VIEW_SLIDES
+        if (g_current_slide < g_num_stocks) {
             StockInfo *info = &g_stocks[g_current_slide];
             if (info->has_data) {
                 char line1[DISP_LINE_MAX + 1];
                 snprintf(line1, sizeof(line1), "%s", info->symbol);
                 disp_show_status(&sc1, line1, info->price_str, info->change_str);
             } else {
-                char line3[DISP_LINE_MAX + 1];
-                snprintf(line3, sizeof(line3), "%s ...", info->symbol);
-                disp_show_status(&sc1, "STOCK MONITOR", wifi_ok ? "WiFi OK" : "WiFi --", line3);
+                /* No quote: show ticker as title (not STOCK MONITOR) so it does not look like a reboot */
+                disp_show_status(&sc1, info->symbol, "...", wifi_ok ? "WiFi OK" : "--");
             }
         } else {
-            static char fng_index_line[DISP_LINE_MAX + 1];
             if (g_fng_has_data) {
                 snprintf(fng_index_line, sizeof(fng_index_line), "Index: %d", (int)g_fng_value);
                 disp_show_status(&sc1, "FEAR & GREED", fng_index_line, g_fng_label);
@@ -795,12 +933,48 @@ void app_main(void)
                 disp_show_status(&sc1, "FEAR & GREED", "...", "");
             }
         }
-
         gpio_set_level(GPIO_NUM_2, 1);
         vTaskDelay(pdMS_TO_TICKS(5000));
         gpio_set_level(GPIO_NUM_2, 0);
+        g_current_slide = (g_current_slide + 1) % num_slides();
 
-        g_current_slide = (g_current_slide + 1) % NUM_SLIDES;
+#elif STOCKS_DISPLAY_VIEW == STOCKS_VIEW_HSCROLL
+        if (!wifi_ok) {
+            disp_show_status(&sc1, "STOCK MONITOR", "WiFi --", "HSCROLL mode");
+            gpio_set_level(GPIO_NUM_2, 0);
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            continue;
+        }
+        build_stocks_scroll_string(hscroll_buf, sizeof(hscroll_buf));
+        disp_title_and_hscroll(&sc1, "STOCKS (scroll)", hscroll_buf,
+			       VIEW_HSCROLL_STEP_MS, VIEW_HSCROLL_CYCLE_MS);
+        if (g_fng_has_data) {
+            snprintf(fng_index_line, sizeof(fng_index_line), "Index: %d", (int)g_fng_value);
+            disp_show_status(&sc1, "FEAR & GREED", fng_index_line, g_fng_label);
+        } else {
+            disp_show_status(&sc1, "FEAR & GREED", "...", "");
+        }
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(pdMS_TO_TICKS(400));
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(pdMS_TO_TICKS(3500));
+
+#elif STOCKS_DISPLAY_VIEW == STOCKS_VIEW_VSLOW
+        if (!wifi_ok) {
+            disp_show_status(&sc1, "STOCK MONITOR", "WiFi --", "VSLOW mode");
+            gpio_set_level(GPIO_NUM_2, 0);
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            continue;
+        }
+        run_view_vertical_slow(&sc1);
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(pdMS_TO_TICKS(800));
+
+#else
+#error "Invalid STOCKS_DISPLAY_VIEW in view_config.h"
+#endif
     }
 
 }

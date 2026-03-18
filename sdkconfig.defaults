@@ -1,15 +1,16 @@
 CONFIG_ESP_WIFI_MBEDTLS_TLS_CLIENT=n
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
-# Vyžaduje komponenta arduino
+# Required by Arduino component stack
 CONFIG_FREERTOS_HZ=1000
-# Oprava linker chyby __wrap_esp_log_write při Arduino + WiFi (Component config -> Diagnostics)
+# Fixes linker __wrap_esp_log_write with Arduino + WiFi (Component config -> Diagnostics)
 CONFIG_DIAG_USE_EXTERNAL_LOG_WRAP=y
-# HTTPS pro esp_http_client (0x7005 = INVALID_TRANSPORT bez tohoto)
+# HTTPS for esp_http_client (otherwise "No transport found", err 0x7005 / 28677)
+# Note: an existing sdkconfig can override this — delete sdkconfig and rebuild, or use menuconfig.
 CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
-# Větší zásobník pro main task (HTTPS + TLS = stack overflow při 3584)
+# Larger main task stack (HTTPS/TLS can overflow at default 3584)
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
-# SSD1306: 128x32 = stejné 8x8 řádky zaplní většinu výšky (u 128x64 vypadají 3 řádky „drobně“ nahoře)
+# SSD1306 128x32: three 8x8 text rows fill most of the panel (on 128x64 the same rows look small at the top)
 CONFIG_SSD1306_128x32=y
 # CONFIG_SSD1306_128x64 is not set

@@ -1,0 +1,9 @@
+# One ticker symbol per line (max ~15 chars). Empty lines and lines starting with # are ignored.
+AAPL
+GOOGL
+SOFI
+NVDA
+ASML
+TSMC
+INTC
+MO

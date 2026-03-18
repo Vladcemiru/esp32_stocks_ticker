@@ -1,96 +1,41 @@
 # ESP32 Stocks Monitor
 
-Projekt: OLED SSD1306, WiFi, HTTP API. **Hlavní způsob buildu je přes rozšíření ESP-IDF ve VS Code / Cursoru** (jako dřív).
+OLED SSD1306, Wi‑Fi, and HTTP APIs (Finnhub quotes + Fear & Greed). **Build with the ESP‑IDF extension in VS Code / Cursor** (or the IDF shell).
 
-## Build a flash (ESP-IDF rozšíření)
+## Build and flash (ESP‑IDF)
 
-1. Nainstaluj **ESP-IDF** a v Cursoru/VS Code rozšíření **ESP-IDF** (od Espressif).
-2. Otevři složku projektu. Rozšíření rozpozná `CMakeLists.txt` a nabídne **Build**, **Flash**, **Monitor**.
-3. V terminálu (s načteným IDF prostředím) můžeš také:
+1. Install **ESP‑IDF** and the **ESP‑IDF** extension (Espressif).
+2. Open the project folder. The extension detects `CMakeLists.txt` and offers **Build**, **Flash**, **Monitor**.
+3. From a terminal with the IDF environment loaded:
    ```bash
    idf.py build
    idf.py -p /dev/ttyUSB0 flash monitor
    ```
-4. WiFi a API nastav v `main/connectivity_config.h` (nebo v `include/connectivity_config.h` podle toho, který build používáš).
+4. Set Wi‑Fi and API keys in `include/connectivity_config.h` (see `main/connectivity_config.h` for a minimal template). The main app includes `../include/connectivity_config.h` when present.
 
-**Flash:** Po změnách kódu můžeš nechat spustit i flash (máš‑li ESP32 připojené). Port je často `/dev/ttyUSB0` nebo `/dev/ttyACM0`; bez `-p` to IDF zkusí najít sám.
+### Tickers (`main/tickers.txt`)
 
-**Chyba „error loading build.ninja“?** Smaž složku `build/` a znovu spusť Build (nebo v terminálu `idf.py fullclean` a pak `idf.py build`). Stává se to po přepnutí mezi IDF a PlatformIO nebo po změnách v CMake.
+One ticker symbol per line (e.g. `AAPL`, `NVDA`). Empty lines and lines starting with `#` are ignored. The file is embedded at build time—after editing tickers, **rebuild and flash**. Maximum **32** tickers (RAM and API limits).
+
+### Display mode (`main/view_config.h`)
+
+Set **`STOCKS_DISPLAY_VIEW`** to one of:
+
+- **`STOCKS_VIEW_SLIDES`** (0) — rotate slides (each stock + Fear & Greed).
+- **`STOCKS_VIEW_HSCROLL`** (1) — title on top, horizontal scroll of all tickers with price and change, then a short F&G screen.
+- **`STOCKS_VIEW_VSLOW`** (2) — slow vertical scroll of the full list + F&G line.
+
+Tune timing with `VIEW_HSCROLL_*` and `VIEW_VSLOW_LINE_MS` in the same file.
+
+**Flash:** After code changes, flash again if the board is connected. Common serial ports: `/dev/ttyUSB0`, `/dev/ttyACM0`, `/dev/ttyACM1`. Omit `-p` to let IDF auto-detect.
+
+**“Error loading build.ninja”?** Delete the `build/` folder and build again (or `idf.py fullclean` then `idf.py build`). This often happens after switching between IDF and PlatformIO or changing CMake layout.
 
 ---
 
-**Proč je tady i PlatformIO?** Když ti nešel build přes IDF (chyby CMake u cJSON/arduino), přidal se Arduino build přes PlatformIO jako záloha. Pokud používáš jen ESP-IDF rozšíření, můžeš `platformio.ini`, `build.sh`, složky `src/` a `arduino_ide_sketch/` ignorovat nebo smazat. Build přes IDF teď má opravené komponenty (cJSON, arduino, ssd1306).
+**PlatformIO:** An older Arduino/PlatformIO layout may still exist in the repo. If you only use ESP‑IDF, you can ignore or remove `platformio.ini`, `src/`, `arduino_ide_sketch/`, etc.
 
 ---
 
 | Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-S2 | ESP32-S3 |
 | ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
-
-# WPA2 Enterprise Example (původní šablona)
-
-This example shows how ESP32 connects to AP with Wi-Fi enterprise encryption using the EAP-FAST method. The example does the following steps:
-
-1. Install CA certificate which is optional.
-2. Set user name and password and identity.
-3. Set the PAC file which may be empty.
-4. Enable WiFi enterprise mode.
-5. Connect to AP.
-
-*Note:*
-1. EAP-FAST is not supported with `CONFIG_ESP_WIFI_MBEDTLS_TLS_CLIENT` and so is disabled by default.
-2. Setting the config `fast_provisioning` to methods 0 and 1 do not support saving the PAC credentials in case of a restart or loss of power.
-3. The certificates present in the `examples/wifi/wifi_eap_fast/main` folder contain server certificates which have the corresponding CA as well. These can be used for server validation which is opptional.
-4. The expiration date of these certificates is 2027/06/05.
-
-### Configuration
-
-```
-idf.py menuconfig
-```
-* Set SSID of Access Point to connect in Example Configuration.
-* Enter EAP-ID.
-* Enter Username and Password.
-* Enable or disable Validate Server option.
-
-### Build and Flash the project.
-
-```
-idf.py -p PORT flash monitor
-```
-
-### Example output
-
-Here is an example of wpa2 enterprise (FAST method) console output.
-```
-I (690) example: Setting WiFi configuration SSID wpa2_test...
-I (690) phy_init: phy_version 4670,719f9f6,Feb 18 2021,17:07:07
-I (800) wifi:mode : sta (24:6f:28:80:41:78)
-I (800) wifi:enable tsf
-I (1410) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1
-I (2410) wifi:state: init -> auth (b0)
-I (2420) wifi:state: auth -> assoc (0)
-E (2420) wifi:Association refused temporarily, comeback time 3072 mSec
-I (5500) wifi:state: assoc -> assoc (0)
-I (5500) wifi:state: assoc -> init (6c0)
-I (5500) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1
-I (7560) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1
-I (7560) wifi:state: init -> auth (b0)
-I (7560) wifi:state: auth -> assoc (0)
-I (7570) wifi:state: assoc -> run (10)
-I (7770) wifi:connected with wpa2_test, aid = 1, channel 6, BW20, bssid = 24:4b:fe:ab:be:99
-I (7770) wifi:security: WPA2-ENT, phy: bg, rssi: -80
-I (7780) wifi:pm start, type: 1
-
-I (7800) example: ~~~~~~~~~~~
-I (7800) example: IP:0.0.0.0
-I (7800) example: MASK:0.0.0.0
-I (7800) example: GW:0.0.0.0
-I (7800) example: ~~~~~~~~~~~
-I (7870) wifi:AP's beacon interval = 102400 us, DTIM period = 1
-I (8580) esp_netif_handlers: sta ip: 192.168.5.3, mask: 255.255.255.0, gw: 192.168.5.1
-I (12800) example: ~~~~~~~~~~~
-I (12800) example: IP:192.168.5.3
-I (12800) example: MASK:255.255.255.0
-I (12800) example: GW:192.168.5.1
-I (12800) example: ~~~~~~~~~~~
-```
