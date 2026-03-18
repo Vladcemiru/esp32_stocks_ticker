@@ -663,15 +663,14 @@ static void fetch_one_quote_finnhub(int idx)
 
     int status = 0;
     esp_err_t err = http_get_to_buffer(url, &status);
+    /* On failure keep last good quote (avoids random "... / WiFi OK" when API glitches) */
     if (err != ESP_OK || status != 200) {
-        g_stocks[idx].has_data = false;
         return;
     }
 
     cJSON *root = cJSON_Parse(responseBuffer);
     if (!root || !cJSON_IsObject(root)) {
         if (root) cJSON_Delete(root);
-        g_stocks[idx].has_data = false;
         return;
     }
 
@@ -683,7 +682,6 @@ static void fetch_one_quote_finnhub(int idx)
     cJSON_Delete(root);
 
     if (price <= 0.0) {
-        g_stocks[idx].has_data = false;
         return;
     }
 
@@ -711,8 +709,6 @@ static void fetch_all_stocks_finnhub(void)
 /* Fetch Fear & Greed index (RapidAPI first, then alternative.me). */
 static void fetch_fear_greed(void)
 {
-    g_fng_has_data = false;
-
     int status = 0;
     esp_err_t err;
 
@@ -922,15 +918,15 @@ void app_main(void)
                 snprintf(line1, sizeof(line1), "%s", info->symbol);
                 disp_show_status(&sc1, line1, info->price_str, info->change_str);
             } else {
-                /* No quote: show ticker as title (not STOCK MONITOR) so it does not look like a reboot */
-                disp_show_status(&sc1, info->symbol, "...", wifi_ok ? "WiFi OK" : "--");
+                /* No successful quote yet (WiFi down hint on line 3 only) */
+                disp_show_status(&sc1, info->symbol, "no quote", wifi_ok ? "" : "offline");
             }
         } else {
             if (g_fng_has_data) {
                 snprintf(fng_index_line, sizeof(fng_index_line), "Index: %d", (int)g_fng_value);
                 disp_show_status(&sc1, "FEAR & GREED", fng_index_line, g_fng_label);
             } else {
-                disp_show_status(&sc1, "FEAR & GREED", "...", "");
+                disp_show_status(&sc1, "FEAR & GREED", "no data", "");
             }
         }
         gpio_set_level(GPIO_NUM_2, 1);
@@ -952,7 +948,7 @@ void app_main(void)
             snprintf(fng_index_line, sizeof(fng_index_line), "Index: %d", (int)g_fng_value);
             disp_show_status(&sc1, "FEAR & GREED", fng_index_line, g_fng_label);
         } else {
-            disp_show_status(&sc1, "FEAR & GREED", "...", "");
+            disp_show_status(&sc1, "FEAR & GREED", "no data", "");
         }
         gpio_set_level(GPIO_NUM_2, 1);
         vTaskDelay(pdMS_TO_TICKS(400));
