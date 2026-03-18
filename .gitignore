@@ -3,3 +3,25 @@
 /.devcontainer/
 /managed_components/
 /main/connectivity_config.h
+
+# ESP-IDF generated config (necommitovat)
+/sdkconfig
+/sdkconfig.*
+/sdkconfig.old
+
+# Lokální tajná konfigurace (API klíče, WiFi hesla)
+/include/connectivity_config.h
+
+# PlatformIO / Python venv (tisíce souborů)
+.venv_pio/
+.pio/
+/build_pio/
+/platformio.ini
+/src/
+/arduino_ide_sketch/
+/components/arduino/
+
+# Lock / cache
+dependencies.lock
+*.lock
+.cache/

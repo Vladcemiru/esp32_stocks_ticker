@@ -1,7 +1,32 @@
+# ESP32 Stocks Monitor
+
+Projekt: OLED SSD1306, WiFi, HTTP API. **Hlavní způsob buildu je přes rozšíření ESP-IDF ve VS Code / Cursoru** (jako dřív).
+
+## Build a flash (ESP-IDF rozšíření)
+
+1. Nainstaluj **ESP-IDF** a v Cursoru/VS Code rozšíření **ESP-IDF** (od Espressif).
+2. Otevři složku projektu. Rozšíření rozpozná `CMakeLists.txt` a nabídne **Build**, **Flash**, **Monitor**.
+3. V terminálu (s načteným IDF prostředím) můžeš také:
+   ```bash
+   idf.py build
+   idf.py -p /dev/ttyUSB0 flash monitor
+   ```
+4. WiFi a API nastav v `main/connectivity_config.h` (nebo v `include/connectivity_config.h` podle toho, který build používáš).
+
+**Flash:** Po změnách kódu můžeš nechat spustit i flash (máš‑li ESP32 připojené). Port je často `/dev/ttyUSB0` nebo `/dev/ttyACM0`; bez `-p` to IDF zkusí najít sám.
+
+**Chyba „error loading build.ninja“?** Smaž složku `build/` a znovu spusť Build (nebo v terminálu `idf.py fullclean` a pak `idf.py build`). Stává se to po přepnutí mezi IDF a PlatformIO nebo po změnách v CMake.
+
+---
+
+**Proč je tady i PlatformIO?** Když ti nešel build přes IDF (chyby CMake u cJSON/arduino), přidal se Arduino build přes PlatformIO jako záloha. Pokud používáš jen ESP-IDF rozšíření, můžeš `platformio.ini`, `build.sh`, složky `src/` a `arduino_ide_sketch/` ignorovat nebo smazat. Build přes IDF teď má opravené komponenty (cJSON, arduino, ssd1306).
+
+---
+
 | Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-S2 | ESP32-S3 |
 | ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
 
-# WPA2 Enterprise Example
+# WPA2 Enterprise Example (původní šablona)
 
 This example shows how ESP32 connects to AP with Wi-Fi enterprise encryption using the EAP-FAST method. The example does the following steps:
 
